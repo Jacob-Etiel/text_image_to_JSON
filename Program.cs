@@ -3,28 +3,31 @@
 using DotNetEnv;
 using OpenAI.Responses;
 
-// loads the .env file so we can get the api key from it
+
+// ==========================
+// 1. SETUP
+// ==========================
+
+// Load .env file
 Env.Load();
 
-// gets the api key from the .env file
-string apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+// Get API key
+string apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")!;
 
-// creates the openai client we use to actually talk to the api
+// Create OpenAI client
 ResponsesClient client = new(apiKey);
 
-Console.Write("You: ");
 
-// gets what I typed in the console
-string userInput = Console.ReadLine()!;
+// ==========================
+// 2. JSON SCHEMA
+// ==========================
 
-// this is the json format I want the model to answer in
-// in this example I want an answer and a confidence number
 BinaryData schema = BinaryData.FromString("""
 {
   "type": "object",
   "properties": {
     "customerName": {
-      "type": ["string","null"]
+      "type": ["string", "null"]
     },
     "Length": {
       "type": "number"
@@ -32,31 +35,41 @@ BinaryData schema = BinaryData.FromString("""
     "Width": {
       "type": "number"
     },
-    "Material":{
-    "type": "string"
+    "Material": {
+      "type": "string"
     }
   },
-  "required": ["customerName", "Length","Width","Material"],
+  "required": [
+    "customerName",
+    "Length",
+    "Width",
+    "Material"
+  ],
   "additionalProperties": false
 }
 """);
 
-// here I define the options for the request
+
+// ==========================
+// 3. REQUEST OPTIONS
+// ==========================
+
 CreateResponseOptions options = new()
 {
-    // which model I want to use
     Model = "gpt-5.6-sol",
-    // gives instructions to the model about its role
+
     Instructions = """
     You are a sales order assistant.
 
-    You receive emails written in normal human language.
-    Extract the order details from the email and convert them
-    into the required JSON format.
+    You receive customer orders written in normal human language
+    or as images.
 
-    Do not invent information that is not present in the email.
+    Extract the order details and convert them into the required
+    JSON format.
+
+    Do not invent information that is not present.
     """,
-    // tells the model I want the answer in the json format I made above
+
     TextOptions = new ResponseTextOptions
     {
         TextFormat = ResponseTextFormat.CreateJsonSchemaFormat(
@@ -67,11 +80,51 @@ CreateResponseOptions options = new()
     }
 };
 
-// adds what the user typed as the actual user message
-options.InputItems.Add( ResponseItem.CreateUserMessageItem(userInput));
 
-// sends the request to openai and waits for the response
-ResponseResult response = await client.CreateResponseAsync(options);
+// ==========================
+// 4. GET IMAGE
+// ==========================
 
-// gets only the text part from the full response object and prints it
+Console.Write("Insert image path: ");
+string filePath = Console.ReadLine()!;
+
+// Read image file
+byte[] imageBytes = File.ReadAllBytes(filePath);
+
+// Convert image into BinaryData
+BinaryData imageData = new(imageBytes, "image/png");
+
+
+// ==========================
+// 5. ADD USER MESSAGE
+// ==========================
+
+options.InputItems.Add(
+    ResponseItem.CreateUserMessageItem(
+        new[]
+        {
+            ResponseContentPart.CreateInputTextPart(
+                "Extract the customerName, Length, Width, and Material from this order."
+            ),
+
+            ResponseContentPart.CreateInputImagePart(imageData)
+        }
+    )
+);
+
+
+// ==========================
+// 6. SEND REQUEST
+// ==========================
+
+ResponseResult response =
+    await client.CreateResponseAsync(options);
+
+
+// ==========================
+// 7. PRINT RESULT
+// ==========================
+
+Console.WriteLine();
+Console.WriteLine("Result:");
 Console.WriteLine(response.GetOutputText());
